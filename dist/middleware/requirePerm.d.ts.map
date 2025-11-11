@@ -1,0 +1,1 @@
+{"version":3,"file":"requirePerm.d.ts","sourceRoot":"","sources":["../../src/middleware/requirePerm.ts"],"names":[],"mappings":"AAAA,OAAO,KAAK,EAAE,OAAO,EAAE,QAAQ,EAAE,YAAY,EAAE,MAAM,SAAS,CAAC;AAK/D,wBAAgB,WAAW,CAAC,QAAQ,EAAE,MAAM,EAAE,UAAU,EAAE,MAAM,IAChD,KAAK,OAAO,EAAE,KAAK,QAAQ,EAAE,MAAM,YAAY,6DAsB9D"}
