@@ -40,11 +40,15 @@ router.post('/create-user', requirePerm('settings', PERM.U), async (req, res) =>
       roleId = role.id;
     }
 
-    // Create user
+    // Create user with role in metadata
     const { data, error } = await supabaseAdmin.auth.admin.createUser({
       email,
       password,
       email_confirm: !!email_confirm,
+      user_metadata: {
+        role: role_slug || null,
+        email_verified: !!email_confirm
+      }
     });
 
     if (error) return badRequest(res, error.message);
@@ -67,12 +71,41 @@ router.post('/create-user', requirePerm('settings', PERM.U), async (req, res) =>
           error: roleAssignError.message
         });
       }
+
+      // Verify permissions were granted by trigger
+      const { data: userPerms, error: permsCheckError } = await supabaseAdmin
+        .from('user_page_perms')
+        .select('page_id, perms_mask')
+        .eq('user_id', userId);
+
+      if (permsCheckError) {
+        console.error('Error checking user permissions:', permsCheckError);
+      }
+
+      // Get role permissions for comparison
+      const { data: rolePerms } = await supabaseAdmin
+        .from('role_page_perms')
+        .select('page_id, perms_mask')
+        .eq('role_id', roleId);
+
+      return res.status(201).json({
+        user: data.user,
+        role_assigned: true,
+        role_slug: role_slug,
+        role_permissions_count: rolePerms?.length || 0,
+        user_permissions_granted: userPerms?.length || 0,
+        debug: {
+          role_had_permissions: (rolePerms?.length || 0) > 0,
+          trigger_granted_permissions: (userPerms?.length || 0) > 0,
+          trigger_worked: (rolePerms?.length || 0) === (userPerms?.length || 0)
+        }
+      });
     }
 
     return res.status(201).json({
       user: data.user,
-      role_assigned: !!roleId,
-      role_slug: roleId ? role_slug : null
+      role_assigned: false,
+      role_slug: null
     });
   } catch (err) {
     console.error('Error creating user:', err);
@@ -279,12 +312,31 @@ router.post('/assign-admin', requirePerm('settings', PERM.U), async (req, res) =
       .from('roles').select('id').eq('slug', 'admin').maybeSingle();
     if (!role) return badRequest(res, 'Admin role missing. Please run migrations first.');
 
+    // Update user_metadata with admin role
+    const { error: updateError } = await supabaseAdmin.auth.admin.updateUserById(
+      user_id,
+      {
+        user_metadata: {
+          role: 'admin'
+        }
+      }
+    );
+
+    if (updateError) {
+      console.error('Error updating user metadata:', updateError);
+      return badRequest(res, 'Failed to update user metadata: ' + updateError.message);
+    }
+
+    // Update user_roles table
     const { error } = await supabaseAdmin
       .from('user_roles')
       .upsert({ user_id, role_id: role.id }, { onConflict: 'user_id' });
 
     if (error) return serverError(res, error.message);
-    return successResponse(res, { ok: true });
+    return successResponse(res, {
+      ok: true,
+      message: 'User promoted to admin. User needs to re-login to see changes in JWT.'
+    });
   } catch (err) {
     console.error('Error assigning admin role:', err);
     return serverError(res, 'Failed to assign admin role');
@@ -562,6 +614,220 @@ router.get('/users', requirePerm('users', PERM.R), async (_req, res) => {
   } catch (err) {
     console.error('Error fetching users:', err);
     return serverError(res, 'Failed to fetch users');
+  }
+});
+
+// Update user's role
+router.post('/update-user-role', requirePerm('settings', PERM.U), async (req, res) => {
+  try {
+    const { user_id, role_slug } = req.body as { user_id: string; role_slug: string };
+
+    // Input validation
+    if (!isValidUUID(user_id)) {
+      return badRequest(res, 'Invalid user_id format');
+    }
+    if (!isNonEmptyString(role_slug)) {
+      return badRequest(res, 'Invalid role_slug');
+    }
+
+    // Check if role exists
+    const { data: role, error: roleError } = await supabaseAdmin
+      .from('roles')
+      .select('id')
+      .eq('slug', role_slug)
+      .maybeSingle();
+
+    if (roleError) return serverError(res, 'Failed to validate role');
+    if (!role) return badRequest(res, `Role "${role_slug}" does not exist`);
+
+    // Update user_metadata with new role
+    const { error: updateError } = await supabaseAdmin.auth.admin.updateUserById(
+      user_id,
+      {
+        user_metadata: {
+          role: role_slug
+        }
+      }
+    );
+
+    if (updateError) {
+      console.error('Error updating user metadata:', updateError);
+      return serverError(res, 'Failed to update user metadata');
+    }
+
+    // Update user_roles table (upsert to replace existing role)
+    const { error: roleAssignError } = await supabaseAdmin
+      .from('user_roles')
+      .upsert({ user_id, role_id: role.id }, { onConflict: 'user_id' });
+
+    if (roleAssignError) {
+      console.error('Error updating user role:', roleAssignError);
+      return serverError(res, 'Failed to update user role in database');
+    }
+
+    // Delete old user permissions
+    const { error: deletePermsError } = await supabaseAdmin
+      .from('user_page_perms')
+      .delete()
+      .eq('user_id', user_id);
+
+    if (deletePermsError) {
+      console.error('Error deleting old permissions:', deletePermsError);
+    }
+
+    // Grant new role permissions
+    const { data: rolePerms } = await supabaseAdmin
+      .from('role_page_perms')
+      .select('page_id, perms_mask')
+      .eq('role_id', role.id);
+
+    if (rolePerms && rolePerms.length > 0) {
+      const permsToInsert = rolePerms.map(rp => ({
+        user_id,
+        page_id: rp.page_id,
+        perms_mask: rp.perms_mask
+      }));
+
+      const { error: insertPermsError } = await supabaseAdmin
+        .from('user_page_perms')
+        .insert(permsToInsert);
+
+      if (insertPermsError) {
+        console.error('Error inserting new permissions:', insertPermsError);
+      }
+    }
+
+    return successResponse(res, {
+      ok: true,
+      user_id,
+      role_slug,
+      message: 'User role updated successfully. User needs to re-login to see changes in JWT.'
+    });
+  } catch (err) {
+    console.error('Error updating user role:', err);
+    return serverError(res, 'Failed to update user role');
+  }
+});
+
+// Get user profile
+router.get('/profile/:user_id', requirePerm('users', PERM.R), async (req, res) => {
+  try {
+    const { user_id } = req.params;
+
+    if (!user_id || !isValidUUID(user_id)) {
+      return badRequest(res, 'Invalid user_id format');
+    }
+
+    const { data: profile, error } = await supabaseAdmin
+      .from('profiles')
+      .select('*')
+      .eq('id', user_id)
+      .maybeSingle();
+
+    if (error) return serverError(res, error.message);
+    if (!profile) return badRequest(res, 'Profile not found');
+
+    return successResponse(res, { profile });
+  } catch (err) {
+    console.error('Error fetching profile:', err);
+    return serverError(res, 'Failed to fetch profile');
+  }
+});
+
+// Update user profile
+router.put('/profile/:user_id', requirePerm('users', PERM.U), async (req, res) => {
+  try {
+    const { user_id } = req.params;
+    const { full_name, avatar_url, phone } = req.body as {
+      full_name?: string;
+      avatar_url?: string;
+      phone?: string;
+    };
+
+    if (!user_id || !isValidUUID(user_id)) {
+      return badRequest(res, 'Invalid user_id format');
+    }
+
+    // Build update object (only include provided fields)
+    const updates: any = {};
+    if (full_name !== undefined) updates.full_name = full_name;
+    if (avatar_url !== undefined) updates.avatar_url = avatar_url;
+    if (phone !== undefined) updates.phone = phone;
+
+    if (Object.keys(updates).length === 0) {
+      return badRequest(res, 'No fields to update');
+    }
+
+    const { data: profile, error } = await supabaseAdmin
+      .from('profiles')
+      .update(updates)
+      .eq('id', user_id)
+      .select()
+      .single();
+
+    if (error) return serverError(res, error.message);
+    if (!profile) return badRequest(res, 'Profile not found');
+
+    return successResponse(res, { profile });
+  } catch (err) {
+    console.error('Error updating profile:', err);
+    return serverError(res, 'Failed to update profile');
+  }
+});
+
+// Get all profiles (with pagination)
+router.get('/profiles', requirePerm('users', PERM.R), async (req, res) => {
+  try {
+    const { limit = 50, offset = 0 } = req.query as { limit?: number; offset?: number };
+
+    const { data: profiles, error, count } = await supabaseAdmin
+      .from('profiles')
+      .select('*', { count: 'exact' })
+      .order('created_at', { ascending: false })
+      .range(Number(offset), Number(offset) + Number(limit) - 1);
+
+    if (error) return serverError(res, error.message);
+
+    return successResponse(res, {
+      profiles: profiles || [],
+      total: count || 0,
+      limit: Number(limit),
+      offset: Number(offset)
+    });
+  } catch (err) {
+    console.error('Error fetching profiles:', err);
+    return serverError(res, 'Failed to fetch profiles');
+  }
+});
+
+// Diagnostic endpoint: Check if trigger exists and is working
+router.get('/check-trigger', requirePerm('settings', PERM.R), async (_req, res) => {
+  try {
+    // Check if trigger exists
+    const { data: triggers } = await supabaseAdmin
+      .from('pg_trigger')
+      .select('*')
+      .eq('tgname', 'trigger_grant_role_permissions');
+
+    // Check if function exists
+    const { data: functions } = await supabaseAdmin.rpc('pg_get_functiondef', {
+      func_oid: 'public.grant_role_permissions_to_user'
+    }).single();
+
+    return successResponse(res, {
+      trigger_exists: !!triggers && triggers.length > 0,
+      trigger_details: triggers || null,
+      function_exists: !!functions,
+      troubleshooting: {
+        if_trigger_missing: 'Run migration: supabase/migrations/20250102000000_role_page_permissions.sql',
+        if_no_permissions_granted: 'Check that role has permissions in role_page_perms table',
+        check_role_perms: 'SELECT * FROM role_page_perms WHERE role_id = YOUR_ROLE_ID',
+        check_user_perms: 'SELECT * FROM user_page_perms WHERE user_id = YOUR_USER_ID'
+      }
+    });
+  } catch (err) {
+    console.error('Error checking trigger:', err);
+    return serverError(res, 'Failed to check trigger status');
   }
 });
 

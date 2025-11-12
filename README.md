@@ -302,11 +302,44 @@ Requires UPDATE permission on "settings" page.
 
 ---
 
+#### Update User Role (Admin) - NEW
+```http
+POST /admin/update-user-role
+```
+Updates a user's role (both in user_metadata and database). Requires UPDATE permission on "settings" page.
+
+**Request Body:**
+```json
+{
+  "user_id": "user-uuid",
+  "role_slug": "manager"
+}
+```
+
+**What it does:**
+1. Updates `user_metadata.role` in auth system
+2. Updates role in `user_roles` table
+3. Replaces user's permissions with new role's permissions
+
+**Response:**
+```json
+{
+  "ok": true,
+  "user_id": "uuid",
+  "role_slug": "manager",
+  "message": "User role updated successfully. User needs to re-login to see changes in JWT."
+}
+```
+
+**Important:** User must re-login for JWT to reflect the new role!
+
+---
+
 #### Assign System Admin (Admin)
 ```http
 POST /admin/assign-admin
 ```
-Promotes a user to system administrator role. Requires UPDATE permission on "settings" page.
+Promotes a user to system administrator role. Updates both user_metadata and database. Requires UPDATE permission on "settings" page.
 
 **Request Body:**
 ```json
@@ -318,7 +351,8 @@ Promotes a user to system administrator role. Requires UPDATE permission on "set
 **Response:**
 ```json
 {
-  "ok": true
+  "ok": true,
+  "message": "User promoted to admin. User needs to re-login to see changes in JWT."
 }
 ```
 

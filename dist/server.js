@@ -6,6 +6,7 @@ import { ENV } from './env.js';
 import { requireAuth } from './middleware/requireAuth.js';
 import pagesRouter from './routes/pages.js';
 import adminRouter from './routes/admin.js';
+import profileRouter from './routes/profile.js';
 import { AppError, formatErrorForLog } from './utils/errors.js';
 const app = express();
 // CORS configuration with origin allowlist
@@ -43,6 +44,7 @@ app.get('/health', (_req, res) => res.json({ ok: true }));
 app.use(generalLimiter);
 app.use(requireAuth);
 app.use('/pages', pagesRouter);
+app.use('/profile', profileRouter);
 app.use('/admin', adminLimiter, adminRouter);
 // Global error handler
 app.use((err, _req, res, _next) => {
