@@ -1,4 +1,4 @@
-import 'dotenv/config'
+import "dotenv/config";
 
 const requireEnv = (key: string): string => {
   const value = process.env[key];
@@ -9,7 +9,7 @@ const requireEnv = (key: string): string => {
 };
 
 const parsePort = (value: string | undefined): number => {
-  const fallback = 8080;
+  const fallback = 8081;
   if (!value) return fallback;
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) {
@@ -19,9 +19,9 @@ const parsePort = (value: string | undefined): number => {
 };
 
 export const ENV = {
-  SUPABASE_URL: requireEnv('SUPABASE_URL'),
-  SUPABASE_ANON_KEY: requireEnv('SUPABASE_ANON_KEY'),
-  SUPABASE_SERVICE_ROLE_KEY: requireEnv('SUPABASE_SERVICE_ROLE_KEY'),
+  SUPABASE_URL: requireEnv("SUPABASE_URL"),
+  SUPABASE_ANON_KEY: requireEnv("SUPABASE_ANON_KEY"),
+  SUPABASE_SERVICE_ROLE_KEY: requireEnv("SUPABASE_SERVICE_ROLE_KEY"),
   PORT: parsePort(process.env.PORT),
-  ALLOWED_ORIGINS: process.env.ALLOWED_ORIGINS || 'http://localhost:3000',
+  ALLOWED_ORIGINS: process.env.ALLOWED_ORIGINS || "http://localhost:3000",
 } as const;
