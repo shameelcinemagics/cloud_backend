@@ -13,9 +13,12 @@ export const forbidden = (res: Response, message = 'Forbidden') =>
 export const badRequest = (res: Response, message: string) =>
   errorResponse(res, 400, message);
 
+export const notFound = (res: Response, message = 'Not found') =>
+  errorResponse(res, 404, message);
+
 export const serverError = (res: Response, message = 'Internal server error') =>
   errorResponse(res, 500, message);
 
-export const successResponse = <T>(res: Response, data: T) => {
-  return res.json(data);
+export const successResponse = <T>(res: Response, data: T, statusCode = 200) => {
+  return res.status(statusCode).json(data);
 };
