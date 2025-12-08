@@ -1,12 +1,7 @@
-import { Router } from 'express';
-import type { Request } from 'express';
+import { Router, type Request } from 'express';
 import { supabaseAdmin } from '../supabase.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { badRequest, serverError, successResponse, notFound } from '../utils/responses.js';
-
-interface AuthRequest extends Request {
-  user?: { id: string };
-}
 
 const router = Router();
 
@@ -187,7 +182,7 @@ router.get('/:id/stock', requireAuth, async (req, res) => {
 });
 
 // Adjust warehouse stock
-router.post('/:id/adjust-stock', requireAuth, async (req: AuthRequest, res) => {
+router.post('/:id/adjust-stock', requireAuth, async (req: Request, res) => {
   try {
     const { id } = req.params;
     const { product_id, quantity, adjustment_type, remark, unit_price } = req.body;
@@ -269,7 +264,7 @@ router.post('/:id/adjust-stock', requireAuth, async (req: AuthRequest, res) => {
 });
 
 // Transfer stock between warehouses
-router.post('/transfer', requireAuth, async (req: AuthRequest, res) => {
+router.post('/transfer', requireAuth, async (req: Request, res) => {
   try {
     const { from_warehouse_id, to_warehouse_id, product_id, quantity } = req.body;
 

@@ -20,7 +20,7 @@ ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();
 ALTER TABLE public.purchase_order_items
 DROP COLUMN IF EXISTS description,
 DROP COLUMN IF EXISTS packing,
-DROP COLUMN IF NOT EXISTS packs,
+DROP COLUMN IF EXISTS packs,
 DROP COLUMN IF EXISTS singles,
 DROP COLUMN IF EXISTS packing_price;
 
@@ -31,20 +31,21 @@ DROP COLUMN IF EXISTS subtotal;
 ALTER TABLE public.purchase_order_items
 ADD COLUMN IF NOT EXISTS subtotal DECIMAL(10,3) DEFAULT 0;
 
+-- Create function to auto-calculate subtotal
+CREATE OR REPLACE FUNCTION public.calculate_po_item_subtotal()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.subtotal = NEW.quantity * NEW.unit_price;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
 -- Add trigger to auto-calculate subtotal
 DROP TRIGGER IF EXISTS calculate_po_item_subtotal_trigger ON public.purchase_order_items;
 CREATE TRIGGER calculate_po_item_subtotal_trigger
   BEFORE INSERT OR UPDATE OF quantity, unit_price ON public.purchase_order_items
   FOR EACH ROW
-  EXECUTE FUNCTION (
-    CREATE OR REPLACE FUNCTION public.calculate_po_item_subtotal()
-    RETURNS TRIGGER AS $$
-    BEGIN
-      NEW.subtotal = NEW.quantity * NEW.unit_price;
-      RETURN NEW;
-    END;
-    $$ LANGUAGE plpgsql
-  );
+  EXECUTE FUNCTION public.calculate_po_item_subtotal();
 
 -- Update trigger for updated_at
 DROP TRIGGER IF EXISTS update_purchase_order_items_updated_at ON public.purchase_order_items;

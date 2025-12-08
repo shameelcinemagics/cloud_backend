@@ -1,12 +1,7 @@
-import { Router } from 'express';
-import type { Request } from 'express';
+import { Router, type Request } from 'express';
 import { supabaseAdmin } from '../supabase.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { badRequest, serverError, successResponse, notFound } from '../utils/responses.js';
-
-interface AuthRequest extends Request {
-  user?: { id: string };
-}
 
 const router = Router();
 
@@ -127,7 +122,7 @@ router.get('/:id', requireAuth, async (req, res) => {
 });
 
 // Create purchase order
-router.post('/', requireAuth, async (req: AuthRequest, res) => {
+router.post('/', requireAuth, async (req: Request, res) => {
   try {
     const {
       supplier_id,
@@ -284,7 +279,7 @@ router.put('/:id', requireAuth, async (req, res) => {
 });
 
 // Confirm/Lock purchase order
-router.post('/:id/confirm', requireAuth, async (req: AuthRequest, res) => {
+router.post('/:id/confirm', requireAuth, async (req: Request, res) => {
   try {
     const { id } = req.params;
 
@@ -340,7 +335,7 @@ router.post('/:id/send', requireAuth, async (req, res) => {
 });
 
 // Confirm delivery (Purchase Confirmation module - Delivery In)
-router.post('/confirm-delivery', requireAuth, async (req: AuthRequest, res) => {
+router.post('/confirm-delivery', requireAuth, async (req: Request, res) => {
   try {
     const {
       purchase_order_id,
@@ -472,7 +467,7 @@ router.post('/confirm-delivery', requireAuth, async (req: AuthRequest, res) => {
 });
 
 // Receive goods (mark PO as received and update inventory)
-router.post('/:id/receive', requireAuth, async (req: AuthRequest, res) => {
+router.post('/:id/receive', requireAuth, async (req: Request, res) => {
   try {
     const { id } = req.params;
     const {

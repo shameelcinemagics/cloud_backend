@@ -1,4 +1,4 @@
-import 'dotenv/config';
+import "dotenv/config";
 export declare const ENV: {
     readonly SUPABASE_URL: string;
     readonly SUPABASE_ANON_KEY: string;

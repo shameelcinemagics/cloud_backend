@@ -1,5 +1,4 @@
-import { Router } from "express";
-import type { Request } from "express";
+import { Router, type Request } from "express";
 import multer from "multer";
 import { supabaseAdmin } from "../supabase.js";
 import { requireAuth } from "../middleware/requireAuth.js";
@@ -9,10 +8,6 @@ import {
   successResponse,
   notFound,
 } from "../utils/responses.js";
-
-interface AuthRequest extends Request {
-  user?: { id: string };
-}
 
 const router = Router();
 
@@ -99,7 +94,7 @@ router.get("/:id", requireAuth, async (req, res) => {
 });
 
 // Create product
-router.post("/", requireAuth, async (req: AuthRequest, res) => {
+router.post("/", requireAuth, async (req: Request, res) => {
   try {
     const {
       name,

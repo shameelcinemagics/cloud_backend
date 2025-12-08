@@ -7,6 +7,14 @@ import { requireAuth } from './middleware/requireAuth.js';
 import pagesRouter from './routes/pages.js';
 import adminRouter from './routes/admin.js';
 import profileRouter from './routes/profile.js';
+import supplierRouter from './routes/supplier.js';
+import roleRouter from './routes/role.js';
+import warehouseRouter from './routes/warehouse.js';
+import purchaseOrderRouter from './routes/purchaseOrder.js';
+import deliveryRouteRouter from './routes/deliveryRoute.js';
+import productsRouter from './routes/products.js';
+import vendingMachinesRouter from './routes/vendingMachines.js';
+import inventoryRouter from './routes/inventory.js';
 import { AppError, formatErrorForLog } from './utils/errors.js';
 const app = express();
 // CORS configuration with origin allowlist
@@ -46,6 +54,14 @@ app.use(requireAuth);
 app.use('/pages', pagesRouter);
 app.use('/profile', profileRouter);
 app.use('/admin', adminLimiter, adminRouter);
+app.use('/supplier', supplierRouter);
+app.use('/roles', roleRouter);
+app.use('/warehouses', warehouseRouter);
+app.use('/purchase-orders', purchaseOrderRouter);
+app.use('/delivery-routes', deliveryRouteRouter);
+app.use('/products', productsRouter);
+app.use('/vending-machines', vendingMachinesRouter);
+app.use('/inventory', inventoryRouter);
 // Global error handler
 app.use((err, _req, res, _next) => {
     // Log the error with full details

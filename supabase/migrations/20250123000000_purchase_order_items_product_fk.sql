@@ -18,6 +18,9 @@ ALTER COLUMN product_id SET NOT NULL;
 
 -- Add the foreign key constraint
 ALTER TABLE public.purchase_order_items
+DROP CONSTRAINT IF EXISTS fk_purchase_order_items_product;
+
+ALTER TABLE public.purchase_order_items
 ADD CONSTRAINT fk_purchase_order_items_product
 FOREIGN KEY (product_id) REFERENCES public.products(id) ON DELETE RESTRICT;
 
