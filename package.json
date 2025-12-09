@@ -8,6 +8,7 @@
     "build": "tsc",
     "start": "node dist/server.js",
     "migrate": "tsx scripts/runMigrations.ts",
+    "migrate:generate": "tsx scripts/generateMigration.ts",
     "seed:admin": "tsx scripts/seedAdmin.ts",
     "assign:admin": "tsx scripts/seedAdminSQL.ts"
   },

@@ -15,7 +15,17 @@ Example: `20250101000000_initial_schema.sql`
 
 | Version | Description | Status |
 |---------|-------------|--------|
-| 20250101000000 | Initial schema - roles, pages, permissions | Applied |
+| 20250101000000 | Initial schema - roles, pages, permissions | ✅ Applied |
+| 20250102000000 | Role-based page permissions | ✅ Applied |
+| 20250103000000 | User profiles | ✅ Applied |
+| 20250117000000 | Warehouse management system | ✅ Applied |
+| 20250119000000 | Inventory integration | ✅ Applied |
+| 20250122000000 | Product nutrition fields | ✅ Applied |
+| 20250123000000 | Purchase order items FK | ✅ Applied |
+| 20251122000000 | Remove machine group | ✅ Applied |
+| 20251127000000 | Add supplier country code | ✅ Applied |
+| 20251208114450 | Production optimization | 🆕 Ready to Apply |
+| 20251208125014 | **Sync prod/dev schemas - Vending machines, products, sales** | 🆕 **Ready to Apply** |
 
 ## How to Apply Migrations
 
