@@ -283,65 +283,27 @@ ALTER TABLE public.ordering_triggers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.goods_receipt_notes ENABLE ROW LEVEL SECURITY;
 
 -- RLS Policies - Authenticated users can read all warehouse data
-DROP POLICY IF EXISTS "Authenticated users can read suppliers" ON public.suppliers;
 CREATE POLICY "Authenticated users can read suppliers" ON public.suppliers FOR SELECT TO authenticated USING (true);
-
-DROP POLICY IF EXISTS "Authenticated users can read warehouses" ON public.warehouses;
 CREATE POLICY "Authenticated users can read warehouses" ON public.warehouses FOR SELECT TO authenticated USING (true);
-
-DROP POLICY IF EXISTS "Authenticated users can read warehouse_stock" ON public.warehouse_stock;
 CREATE POLICY "Authenticated users can read warehouse_stock" ON public.warehouse_stock FOR SELECT TO authenticated USING (true);
-
-DROP POLICY IF EXISTS "Authenticated users can read purchase_orders" ON public.purchase_orders;
 CREATE POLICY "Authenticated users can read purchase_orders" ON public.purchase_orders FOR SELECT TO authenticated USING (true);
-
-DROP POLICY IF EXISTS "Authenticated users can read purchase_order_items" ON public.purchase_order_items;
 CREATE POLICY "Authenticated users can read purchase_order_items" ON public.purchase_order_items FOR SELECT TO authenticated USING (true);
-
-DROP POLICY IF EXISTS "Authenticated users can read delivery_routes" ON public.delivery_routes;
 CREATE POLICY "Authenticated users can read delivery_routes" ON public.delivery_routes FOR SELECT TO authenticated USING (true);
-
-DROP POLICY IF EXISTS "Authenticated users can read delivery_route_items" ON public.delivery_route_items;
 CREATE POLICY "Authenticated users can read delivery_route_items" ON public.delivery_route_items FOR SELECT TO authenticated USING (true);
-
-DROP POLICY IF EXISTS "Authenticated users can read stock_adjustments" ON public.stock_adjustments;
 CREATE POLICY "Authenticated users can read stock_adjustments" ON public.stock_adjustments FOR SELECT TO authenticated USING (true);
-
-DROP POLICY IF EXISTS "Authenticated users can read ordering_triggers" ON public.ordering_triggers;
 CREATE POLICY "Authenticated users can read ordering_triggers" ON public.ordering_triggers FOR SELECT TO authenticated USING (true);
-
-DROP POLICY IF EXISTS "Authenticated users can read goods_receipt_notes" ON public.goods_receipt_notes;
 CREATE POLICY "Authenticated users can read goods_receipt_notes" ON public.goods_receipt_notes FOR SELECT TO authenticated USING (true);
 
 -- Service role can do everything
-DROP POLICY IF EXISTS "Service role full access suppliers" ON public.suppliers;
 CREATE POLICY "Service role full access suppliers" ON public.suppliers FOR ALL TO service_role USING (true);
-
-DROP POLICY IF EXISTS "Service role full access warehouses" ON public.warehouses;
 CREATE POLICY "Service role full access warehouses" ON public.warehouses FOR ALL TO service_role USING (true);
-
-DROP POLICY IF EXISTS "Service role full access warehouse_stock" ON public.warehouse_stock;
 CREATE POLICY "Service role full access warehouse_stock" ON public.warehouse_stock FOR ALL TO service_role USING (true);
-
-DROP POLICY IF EXISTS "Service role full access purchase_orders" ON public.purchase_orders;
 CREATE POLICY "Service role full access purchase_orders" ON public.purchase_orders FOR ALL TO service_role USING (true);
-
-DROP POLICY IF EXISTS "Service role full access purchase_order_items" ON public.purchase_order_items;
 CREATE POLICY "Service role full access purchase_order_items" ON public.purchase_order_items FOR ALL TO service_role USING (true);
-
-DROP POLICY IF EXISTS "Service role full access delivery_routes" ON public.delivery_routes;
 CREATE POLICY "Service role full access delivery_routes" ON public.delivery_routes FOR ALL TO service_role USING (true);
-
-DROP POLICY IF EXISTS "Service role full access delivery_route_items" ON public.delivery_route_items;
 CREATE POLICY "Service role full access delivery_route_items" ON public.delivery_route_items FOR ALL TO service_role USING (true);
-
-DROP POLICY IF EXISTS "Service role full access stock_adjustments" ON public.stock_adjustments;
 CREATE POLICY "Service role full access stock_adjustments" ON public.stock_adjustments FOR ALL TO service_role USING (true);
-
-DROP POLICY IF EXISTS "Service role full access ordering_triggers" ON public.ordering_triggers;
 CREATE POLICY "Service role full access ordering_triggers" ON public.ordering_triggers FOR ALL TO service_role USING (true);
-
-DROP POLICY IF EXISTS "Service role full access goods_receipt_notes" ON public.goods_receipt_notes;
 CREATE POLICY "Service role full access goods_receipt_notes" ON public.goods_receipt_notes FOR ALL TO service_role USING (true);
 
 -- ===== ADD NEW PAGES FOR PERMISSIONS =====

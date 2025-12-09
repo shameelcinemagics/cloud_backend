@@ -1,7 +1,12 @@
-import { Router, type Request } from 'express';
+import { Router } from 'express';
+import type { Request } from 'express';
 import { supabaseAdmin } from '../supabase.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { badRequest, serverError, successResponse, notFound } from '../utils/responses.js';
+
+interface AuthRequest extends Request {
+  user?: { id: string };
+}
 
 const router = Router();
 
@@ -60,6 +65,7 @@ router.get('/warehouse', requireAuth, async (req, res) => {
       filteredData = data?.filter(item =>
         item.products?.name?.toLowerCase().includes(search.toLowerCase()) ||
         item.products?.partNo?.toLowerCase().includes(search.toLowerCase()) ||
+        item.products?.barcode?.toLowerCase().includes(search.toLowerCase()) ||
         item.batch_number?.toLowerCase().includes(search.toLowerCase())
       );
     }
@@ -118,7 +124,7 @@ router.get('/summary', requireAuth, async (req, res) => {
 });
 
 // Add inventory (manual adjustment or from PO)
-router.post('/add', requireAuth, async (req: Request, res) => {
+router.post('/add', requireAuth, async (req: AuthRequest, res) => {
   try {
     const {
       warehouse_id,
@@ -180,7 +186,7 @@ router.post('/add', requireAuth, async (req: Request, res) => {
 });
 
 // Remove/adjust inventory
-router.post('/adjust', requireAuth, async (req: Request, res) => {
+router.post('/adjust', requireAuth, async (req: AuthRequest, res) => {
   try {
     const {
       inventory_id,

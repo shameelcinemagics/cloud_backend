@@ -1,7 +1,12 @@
-import { Router, type Request } from 'express';
+import { Router } from 'express';
+import type { Request } from 'express';
 import { supabaseAdmin } from '../supabase.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { badRequest, serverError, successResponse, notFound } from '../utils/responses.js';
+
+interface AuthRequest extends Request {
+  user?: { id: string };
+}
 
 const router = Router();
 
@@ -124,7 +129,7 @@ router.get('/:id', requireAuth, async (req, res) => {
 });
 
 // Create delivery route
-router.post('/', requireAuth, async (req: Request, res) => {
+router.post('/', requireAuth, async (req: AuthRequest, res) => {
   try {
     const {
       name,
@@ -289,7 +294,7 @@ router.post('/:id/start', requireAuth, async (req, res) => {
 });
 
 // Refill machine slot (deduct from warehouse inventory)
-router.post('/:id/refill', requireAuth, async (req: Request, res) => {
+router.post('/:id/refill', requireAuth, async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
     const { refills } = req.body; // Array of { slot_id, vending_machine_id, product_id, quantity, warehouse_inventory_id }
