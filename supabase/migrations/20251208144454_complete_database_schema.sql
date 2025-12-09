@@ -243,7 +243,7 @@ CREATE INDEX IF NOT EXISTS idx_transactions_status ON public.transactions(status
 -- 15. Suppliers
 CREATE TABLE IF NOT EXISTS public.suppliers (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  name TEXT NOT NULL,
+  company_name TEXT NOT NULL,
   contact_person TEXT,
   email TEXT,
   phone TEXT,
@@ -253,17 +253,37 @@ CREATE TABLE IF NOT EXISTS public.suppliers (
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_suppliers_name ON public.suppliers(name);
+CREATE INDEX IF NOT EXISTS idx_suppliers_company_name ON public.suppliers(company_name);
 
 -- 16. Warehouses
 CREATE TABLE IF NOT EXISTS public.warehouses (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name TEXT NOT NULL,
-  location TEXT NOT NULL,
-  capacity NUMERIC,
+  warehouse_image_url TEXT,
+  location_coordinate TEXT,
+  location_name TEXT,
+  address TEXT,
+  sub_warehouse_of UUID REFERENCES public.warehouses(id) ON DELETE SET NULL,
+  ignore_stock_quantity_during_restock BOOLEAN DEFAULT FALSE,
+  is_preferred BOOLEAN DEFAULT FALSE,
+  phone TEXT,
+  email TEXT,
+  warehouse_type TEXT CHECK (warehouse_type IN ('main', 'regional', 'distribution', 'cold_storage', 'other')),
+  location_type TEXT CHECK (location_type IN ('cash_room', 'client_location', 'standalone')),
+  management_types TEXT[] DEFAULT '{}',
+  external_id TEXT,
+  description TEXT,
+  working_days TEXT[] DEFAULT '{}',
+  working_hours_from TIME,
+  working_hours_to TIME,
+  has_time_interval BOOLEAN DEFAULT FALSE,
+  custom_room TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
+
+CREATE INDEX IF NOT EXISTS idx_warehouses_name ON public.warehouses(name);
+CREATE INDEX IF NOT EXISTS idx_warehouses_is_preferred ON public.warehouses(is_preferred);
 
 
 -- 17. Warehouse Stock
@@ -272,36 +292,50 @@ CREATE TABLE IF NOT EXISTS public.warehouse_stock (
   warehouse_id UUID NOT NULL REFERENCES public.warehouses(id) ON DELETE CASCADE,
   product_id UUID NOT NULL REFERENCES public.products(id) ON DELETE CASCADE,
   quantity INTEGER DEFAULT 0 CHECK (quantity >= 0),
-  reorder_point INTEGER DEFAULT 50,
-  reorder_quantity INTEGER DEFAULT 100,
-  last_restock_date TIMESTAMP WITH TIME ZONE,
+  min_stock_level INTEGER DEFAULT 0,
+  max_stock_level INTEGER,
+  unit_cost NUMERIC(10,3) DEFAULT 0,
   expiry_date DATE,
+  batch_number TEXT,
+  last_purchase_date DATE,
+  last_purchase_price NUMERIC(10,3),
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  UNIQUE(warehouse_id, product_id)
+  UNIQUE(warehouse_id, product_id, batch_number)
 );
 
 CREATE INDEX IF NOT EXISTS idx_warehouse_stock_warehouse ON public.warehouse_stock(warehouse_id);
 CREATE INDEX IF NOT EXISTS idx_warehouse_stock_product ON public.warehouse_stock(product_id);
+CREATE INDEX IF NOT EXISTS idx_warehouse_stock_expiry ON public.warehouse_stock(expiry_date);
+CREATE INDEX IF NOT EXISTS idx_warehouse_stock_warehouse_product ON public.warehouse_stock(warehouse_id, product_id);
 
 -- 18. Purchase Orders
 CREATE TABLE IF NOT EXISTS public.purchase_orders (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  po_number TEXT UNIQUE NOT NULL,
-  supplier_id UUID NOT NULL REFERENCES public.suppliers(id) ON DELETE RESTRICT,
-  warehouse_id UUID NOT NULL REFERENCES public.warehouses(id) ON DELETE RESTRICT,
-  status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'ordered', 'received', 'cancelled')),
-  order_date TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  expected_delivery_date DATE,
-  total_amount NUMERIC(10, 3) DEFAULT 0,
-  notes TEXT,
+  reference TEXT UNIQUE NOT NULL,
+  supplier_id UUID REFERENCES public.suppliers(id) ON DELETE SET NULL,
+  vendor_reference TEXT,
+  buyer_name TEXT,
+  delivery_address TEXT,
+  currency TEXT DEFAULT 'KWD',
+  order_deadline TIMESTAMP WITH TIME ZONE,
+  expected_arrival TIMESTAMP WITH TIME ZONE,
+  deliver_to_warehouse_id UUID REFERENCES public.warehouses(id) ON DELETE SET NULL,
+  total_amount NUMERIC(10,3) DEFAULT 0,
+  status TEXT DEFAULT 'draft' CHECK (status IN ('draft', 'locked', 'sent', 'received', 'cancelled')),
+  terms_and_conditions TEXT,
+  source_document TEXT,
+  created_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  confirmed_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  confirmation_date TIMESTAMP WITH TIME ZONE,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+CREATE INDEX IF NOT EXISTS idx_purchase_orders_reference ON public.purchase_orders(reference);
 CREATE INDEX IF NOT EXISTS idx_purchase_orders_supplier ON public.purchase_orders(supplier_id);
-CREATE INDEX IF NOT EXISTS idx_purchase_orders_warehouse ON public.purchase_orders(warehouse_id);
 CREATE INDEX IF NOT EXISTS idx_purchase_orders_status ON public.purchase_orders(status);
+CREATE INDEX IF NOT EXISTS idx_purchase_orders_status_supplier ON public.purchase_orders(status, supplier_id);
 
 -- 19. Purchase Order Items
 CREATE TABLE IF NOT EXISTS public.purchase_order_items (
@@ -309,73 +343,102 @@ CREATE TABLE IF NOT EXISTS public.purchase_order_items (
   purchase_order_id UUID NOT NULL REFERENCES public.purchase_orders(id) ON DELETE CASCADE,
   product_id UUID NOT NULL REFERENCES public.products(id) ON DELETE RESTRICT,
   quantity INTEGER NOT NULL CHECK (quantity > 0),
-  unit_price NUMERIC(10, 3) NOT NULL CHECK (unit_price >= 0),
-  subtotal NUMERIC(10, 3) GENERATED ALWAYS AS (quantity * unit_price) STORED,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_purchase_order_items_po ON public.purchase_order_items(purchase_order_id);
-CREATE INDEX IF NOT EXISTS idx_purchase_order_items_product ON public.purchase_order_items(product_id);
-
--- 20. Delivery Routes
-CREATE TABLE IF NOT EXISTS public.delivery_routes (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  route_name TEXT NOT NULL,
-  driver_name TEXT,
-  vehicle_number TEXT,
-  status TEXT DEFAULT 'planned' CHECK (status IN ('planned', 'in_progress', 'completed', 'cancelled')),
-  scheduled_date DATE NOT NULL,
-  completed_at TIMESTAMP WITH TIME ZONE,
+  unit_price NUMERIC(10,3) NOT NULL,
+  subtotal NUMERIC(10,3) DEFAULT 0,
+  received_quantity INTEGER DEFAULT 0 CHECK (received_quantity >= 0),
   notes TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_delivery_routes_status ON public.delivery_routes(status);
-CREATE INDEX IF NOT EXISTS idx_delivery_routes_scheduled_date ON public.delivery_routes(scheduled_date);
+CREATE INDEX IF NOT EXISTS idx_po_items_order ON public.purchase_order_items(purchase_order_id);
+CREATE INDEX IF NOT EXISTS idx_po_items_product ON public.purchase_order_items(product_id);
+
+-- 20. Delivery Routes
+CREATE TABLE IF NOT EXISTS public.delivery_routes (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name TEXT NOT NULL,
+  description TEXT,
+  person_in_charge_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  warehouse_id UUID REFERENCES public.warehouses(id) ON DELETE SET NULL,
+  machines UUID[] DEFAULT '{}',
+  delivery_status TEXT DEFAULT 'pending' CHECK (delivery_status IN ('pending', 'in_route', 'completed', 'cancelled')),
+  kitting_code TEXT UNIQUE,
+  route_date DATE DEFAULT CURRENT_DATE,
+  started_at TIMESTAMP WITH TIME ZONE,
+  completed_at TIMESTAMP WITH TIME ZONE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_delivery_routes_status ON public.delivery_routes(delivery_status);
+CREATE INDEX IF NOT EXISTS idx_delivery_routes_date ON public.delivery_routes(route_date);
+CREATE INDEX IF NOT EXISTS idx_delivery_routes_person ON public.delivery_routes(person_in_charge_id);
+CREATE INDEX IF NOT EXISTS idx_delivery_routes_status_date ON public.delivery_routes(delivery_status, route_date);
 
 -- 21. Delivery Route Items
 CREATE TABLE IF NOT EXISTS public.delivery_route_items (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   delivery_route_id UUID NOT NULL REFERENCES public.delivery_routes(id) ON DELETE CASCADE,
-  vending_machine_id UUID NOT NULL REFERENCES public.vending_machines(id) ON DELETE CASCADE,
-  product_id UUID NOT NULL REFERENCES public.products(id) ON DELETE RESTRICT,
-  quantity INTEGER NOT NULL CHECK (quantity > 0),
-  delivered_quantity INTEGER DEFAULT 0 CHECK (delivered_quantity >= 0),
-  sequence_order INTEGER,
+  product_id UUID NOT NULL REFERENCES public.products(id) ON DELETE CASCADE,
+  product_vpn TEXT,
+  quantity_to_bring INTEGER DEFAULT 0,
+  quantity_to_remove INTEGER DEFAULT 0,
+  machine_id UUID,
+  purchase_order_item_id UUID REFERENCES public.purchase_order_items(id) ON DELETE SET NULL,
+  warehouse_id UUID REFERENCES public.warehouses(id) ON DELETE SET NULL,
+  received_quantity INTEGER DEFAULT 0,
+  batch_number TEXT,
+  expiry_date DATE,
+  manufacturing_date DATE,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_delivery_route_items_route ON public.delivery_route_items(delivery_route_id);
-CREATE INDEX IF NOT EXISTS idx_delivery_route_items_machine ON public.delivery_route_items(vending_machine_id);
+CREATE INDEX IF NOT EXISTS idx_route_items_route ON public.delivery_route_items(delivery_route_id);
+CREATE INDEX IF NOT EXISTS idx_dr_items_po_item ON public.delivery_route_items(purchase_order_item_id);
+CREATE INDEX IF NOT EXISTS idx_dr_items_warehouse ON public.delivery_route_items(warehouse_id);
 
 -- 22. Stock Adjustments
 CREATE TABLE IF NOT EXISTS public.stock_adjustments (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   warehouse_id UUID NOT NULL REFERENCES public.warehouses(id) ON DELETE CASCADE,
   product_id UUID NOT NULL REFERENCES public.products(id) ON DELETE CASCADE,
-  adjustment_type TEXT NOT NULL CHECK (adjustment_type IN ('add', 'remove', 'correction')),
+  adjustment_date DATE DEFAULT CURRENT_DATE,
+  adjustment_type TEXT NOT NULL CHECK (adjustment_type IN (
+    'purchase', 'damage', 'expired', 'lost', 'extra_bonus',
+    'returned_to_supplier', 'claim_to_customer', 'pick_up_to_transit',
+    'return_from_transit', 'manual_adjustment'
+  )),
   quantity INTEGER NOT NULL,
-  reason TEXT,
-  performed_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  previous_quantity INTEGER NOT NULL,
+  new_quantity INTEGER NOT NULL,
+  unit_price NUMERIC(10,3),
+  total_price NUMERIC(10,3),
+  remark TEXT,
+  source_document TEXT,
+  adjusted_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_stock_adjustments_warehouse ON public.stock_adjustments(warehouse_id);
-CREATE INDEX IF NOT EXISTS idx_stock_adjustments_product ON public.stock_adjustments(product_id);
+CREATE INDEX IF NOT EXISTS idx_stock_adjustments_date ON public.stock_adjustments(adjustment_date);
+CREATE INDEX IF NOT EXISTS idx_stock_adjustments_type ON public.stock_adjustments(adjustment_type);
+CREATE INDEX IF NOT EXISTS idx_stock_adjustments_warehouse_date ON public.stock_adjustments(warehouse_id, adjustment_date DESC);
 
 -- 23. Ordering Triggers
 CREATE TABLE IF NOT EXISTS public.ordering_triggers (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name TEXT NOT NULL,
   product_id UUID NOT NULL REFERENCES public.products(id) ON DELETE CASCADE,
   warehouse_id UUID NOT NULL REFERENCES public.warehouses(id) ON DELETE CASCADE,
-  trigger_threshold INTEGER NOT NULL CHECK (trigger_threshold >= 0),
-  order_quantity INTEGER NOT NULL CHECK (order_quantity > 0),
+  min_quantity INTEGER NOT NULL CHECK (min_quantity >= 0),
+  max_quantity INTEGER NOT NULL CHECK (max_quantity >= min_quantity),
+  unit_of_measure TEXT DEFAULT 'Units',
+  auto_order_enabled BOOLEAN DEFAULT FALSE,
   supplier_id UUID REFERENCES public.suppliers(id) ON DELETE SET NULL,
-  is_active BOOLEAN DEFAULT true,
+  last_triggered_at TIMESTAMP WITH TIME ZONE,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  UNIQUE(product_id, warehouse_id)
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_ordering_triggers_product ON public.ordering_triggers(product_id);
@@ -384,49 +447,70 @@ CREATE INDEX IF NOT EXISTS idx_ordering_triggers_warehouse ON public.ordering_tr
 -- 24. Goods Receipt Notes
 CREATE TABLE IF NOT EXISTS public.goods_receipt_notes (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  grn_number TEXT UNIQUE NOT NULL,
-  purchase_order_id UUID NOT NULL REFERENCES public.purchase_orders(id) ON DELETE RESTRICT,
-  warehouse_id UUID NOT NULL REFERENCES public.warehouses(id) ON DELETE RESTRICT,
+  reference TEXT UNIQUE NOT NULL,
+  purchase_order_id UUID REFERENCES public.purchase_orders(id) ON DELETE SET NULL,
+  warehouse_id UUID NOT NULL REFERENCES public.warehouses(id) ON DELETE CASCADE,
+  supplier_id UUID REFERENCES public.suppliers(id) ON DELETE SET NULL,
   received_date TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   received_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  quality_check_status TEXT DEFAULT 'pending' CHECK (quality_check_status IN ('pending', 'passed', 'failed', 'partial')),
   notes TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_goods_receipt_notes_po ON public.goods_receipt_notes(purchase_order_id);
-CREATE INDEX IF NOT EXISTS idx_goods_receipt_notes_warehouse ON public.goods_receipt_notes(warehouse_id);
+CREATE INDEX IF NOT EXISTS idx_grn_po ON public.goods_receipt_notes(purchase_order_id);
+CREATE INDEX IF NOT EXISTS idx_grn_warehouse ON public.goods_receipt_notes(warehouse_id);
 
 -- 25. Machine Refill Records
 CREATE TABLE IF NOT EXISTS public.machine_refill_records (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  vending_machine_id UUID NOT NULL REFERENCES public.vending_machines(id) ON DELETE CASCADE,
-  delivery_route_id UUID REFERENCES public.delivery_routes(id) ON DELETE SET NULL,
-  refill_date TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  performed_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  delivery_route_id UUID REFERENCES public.delivery_routes(id) ON DELETE CASCADE,
+  vending_machine_id UUID REFERENCES public.vending_machines(id) ON DELETE SET NULL,
+  warehouse_id UUID REFERENCES public.warehouses(id) ON DELETE SET NULL,
+  slot_id UUID REFERENCES public.slots(id) ON DELETE SET NULL,
+  product_id UUID REFERENCES public.products(id) ON DELETE SET NULL,
+  quantity_added INTEGER DEFAULT 0,
+  quantity_removed INTEGER DEFAULT 0,
+  old_quantity INTEGER DEFAULT 0,
+  new_quantity INTEGER DEFAULT 0,
+  expiry_date DATE,
+  batch_number TEXT,
   notes TEXT,
+  refilled_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  refilled_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_machine_refill_records_machine ON public.machine_refill_records(vending_machine_id);
-CREATE INDEX IF NOT EXISTS idx_machine_refill_records_route ON public.machine_refill_records(delivery_route_id);
+CREATE INDEX IF NOT EXISTS idx_refill_route ON public.machine_refill_records(delivery_route_id);
+CREATE INDEX IF NOT EXISTS idx_refill_machine ON public.machine_refill_records(vending_machine_id);
+CREATE INDEX IF NOT EXISTS idx_refill_warehouse ON public.machine_refill_records(warehouse_id);
+CREATE INDEX IF NOT EXISTS idx_refill_product ON public.machine_refill_records(product_id);
 
 -- 26. Inventory Transactions
 CREATE TABLE IF NOT EXISTS public.inventory_transactions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  warehouse_id UUID NOT NULL REFERENCES public.warehouses(id) ON DELETE CASCADE,
-  product_id UUID NOT NULL REFERENCES public.products(id) ON DELETE CASCADE,
-  transaction_type TEXT NOT NULL CHECK (transaction_type IN ('purchase', 'sale', 'transfer', 'adjustment', 'return')),
-  quantity INTEGER NOT NULL,
-  reference_id UUID,
+  warehouse_id UUID REFERENCES public.warehouses(id) ON DELETE CASCADE,
+  product_id UUID REFERENCES public.products(id) ON DELETE CASCADE,
+  transaction_type TEXT NOT NULL CHECK (transaction_type IN (
+    'purchase_receipt', 'machine_refill', 'adjustment', 'expired', 'damaged', 'return'
+  )),
+  quantity_change INTEGER NOT NULL,
+  quantity_before INTEGER NOT NULL,
+  quantity_after INTEGER NOT NULL,
   reference_type TEXT,
-  performed_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  reference_id UUID,
+  batch_number TEXT,
+  expiry_date DATE,
   notes TEXT,
+  created_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_inventory_transactions_warehouse ON public.inventory_transactions(warehouse_id);
-CREATE INDEX IF NOT EXISTS idx_inventory_transactions_product ON public.inventory_transactions(product_id);
-CREATE INDEX IF NOT EXISTS idx_inventory_transactions_type ON public.inventory_transactions(transaction_type);
+CREATE INDEX IF NOT EXISTS idx_inv_trans_warehouse ON public.inventory_transactions(warehouse_id);
+CREATE INDEX IF NOT EXISTS idx_inv_trans_product ON public.inventory_transactions(product_id);
+CREATE INDEX IF NOT EXISTS idx_inv_trans_type ON public.inventory_transactions(transaction_type);
+CREATE INDEX IF NOT EXISTS idx_inv_trans_created ON public.inventory_transactions(created_at);
+CREATE INDEX IF NOT EXISTS idx_inventory_transactions_warehouse_product ON public.inventory_transactions(warehouse_id, product_id);
 
 -- ============================================================================
 -- ROW LEVEL SECURITY (RLS) POLICIES
