@@ -1,7 +1,12 @@
-import { Router, type Request } from 'express';
+import { Router } from 'express';
+import type { Request } from 'express';
 import { supabaseAdmin } from '../supabase.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { badRequest, serverError, successResponse, notFound } from '../utils/responses.js';
+
+interface AuthRequest extends Request {
+  user?: { id: string };
+}
 
 const router = Router();
 
@@ -116,7 +121,7 @@ router.get('/:id', requireAuth, async (req, res) => {
 });
 
 // Create vending machine
-router.post('/', requireAuth, async (req: Request, res) => {
+router.post('/', requireAuth, async (req: AuthRequest, res) => {
   try {
     const {
       name,

@@ -1,114 +1,256 @@
-# 🚀 Quick Reference - VendCloud Migrations
+# Quick Reference - VendCloud Backend
 
-## One-Line Deploy
+## Streamlined Workflow (Recommended)
+
+### 1. Create Role with Permissions (One Call)
 ```bash
-supabase db push
+POST /admin/create-role
+{
+  "slug": "manager",
+  "label": "Manager",
+  "permissions": [
+    { "page_slug": "dashboard", "level": "view" },
+    { "page_slug": "sales", "level": "admin" }
+  ]
+}
 ```
 
----
-
-## 📦 What You Have
-
-| Item | Details |
-|------|---------|
-| **Main Migration** | 20251208000000_complete_database_schema.sql |
-| **Tables** | 27 (auth + vending + warehouse) |
-| **Policies** | 49 RLS policies |
-| **Size** | 44KB (904 lines) |
-| **Old Migrations** | Backed up in supabase/migrations_backup/ |
-
----
-
-## 🛠️ Common Commands
-
-### Deploy Migration
+### 2. Create User with Role (One Call)
 ```bash
-supabase db push
+POST /admin/create-user
+{
+  "email": "user@company.com",
+  "password": "SecurePass123",
+  "email_confirm": true,
+  "role_slug": "manager"
+}
 ```
 
-### Generate New Migration
+**Done!** User automatically has all role permissions.
+
+---
+
+## All Admin Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/admin/create-role` | POST | Create role (optional: with permissions) |
+| `/admin/create-user` | POST | Create user (optional: with role) |
+| `/admin/set-role-pages` | POST | Bulk set role permissions |
+| `/admin/set-role-page` | POST | Set single role permission |
+| `/admin/set-user-page` | POST | Override user permission |
+| `/admin/assign-admin` | POST | Promote user to admin |
+| `/admin/roles` | GET | List all roles with permissions |
+| `/admin/users` | GET | List all users with roles |
+
+---
+
+## Permission Levels
+
+| Level | Perms Mask | Permissions | Use Case |
+|-------|------------|-------------|----------|
+| `view` | 2 | Read only | Viewers, reports |
+| `admin` | 15 | Full CRUD | Managers, admins |
+| `none` | 0 | No access | Revoke access |
+
+---
+
+## Available Pages
+
+- `dashboard` - Dashboard
+- `machines` - Machines
+- `products` - Products
+- `inventory` - Inventory
+- `sales` - Sales
+- `finance` - Finance
+- `support` - Support
+- `marketing` - Marketing / Signage
+- `users` - Users
+- `settings` - Settings
+
+---
+
+## Common Role Templates
+
+### Sales Manager
+```json
+{
+  "slug": "sales_manager",
+  "label": "Sales Manager",
+  "permissions": [
+    { "page_slug": "dashboard", "level": "view" },
+    { "page_slug": "sales", "level": "admin" },
+    { "page_slug": "products", "level": "admin" },
+    { "page_slug": "inventory", "level": "admin" },
+    { "page_slug": "finance", "level": "view" }
+  ]
+}
+```
+
+### Finance Team
+```json
+{
+  "slug": "finance_member",
+  "label": "Finance Team Member",
+  "permissions": [
+    { "page_slug": "dashboard", "level": "view" },
+    { "page_slug": "finance", "level": "admin" },
+    { "page_slug": "sales", "level": "view" }
+  ]
+}
+```
+
+### Support Agent
+```json
+{
+  "slug": "support_agent",
+  "label": "Support Agent",
+  "permissions": [
+    { "page_slug": "dashboard", "level": "view" },
+    { "page_slug": "support", "level": "admin" },
+    { "page_slug": "users", "level": "view" }
+  ]
+}
+```
+
+### Viewer (Read-Only)
+```json
+{
+  "slug": "viewer",
+  "label": "Viewer",
+  "permissions": [
+    { "page_slug": "dashboard", "level": "view" },
+    { "page_slug": "sales", "level": "view" },
+    { "page_slug": "products", "level": "view" }
+  ]
+}
+```
+
+---
+
+## Example Workflow
+
 ```bash
-npm run migrate:generate
+# 1. Create manager role with permissions
+curl -X POST http://localhost:8080/admin/create-role \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "slug": "manager",
+    "label": "Manager",
+    "permissions": [
+      { "page_slug": "dashboard", "level": "view" },
+      { "page_slug": "sales", "level": "admin" }
+    ]
+  }'
+
+# 2. Create user with manager role
+curl -X POST http://localhost:8080/admin/create-user \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "manager@company.com",
+    "password": "SecurePass123",
+    "email_confirm": true,
+    "role_slug": "manager"
+  }'
+
+# 3. Verify user's permissions
+curl -H "Authorization: Bearer USER_TOKEN" \
+  http://localhost:8080/pages/my-pages
 ```
 
-### Check Migration Status
+---
+
+## Permission Priority
+
+1. **Admin role** → Full CRUD (15) on all pages
+2. **User-specific permissions** → Override role permissions
+3. **Role permissions** → Default from assigned role
+4. **No permission** → No access (0)
+
+---
+
+## Documentation
+
+- **[README.md](./README.md)** - Complete API documentation
+- **[STREAMLINED_WORKFLOW.md](./STREAMLINED_WORKFLOW.md)** - Detailed examples of streamlined workflow
+- **[BULK_PERMISSIONS_EXAMPLES.md](./BULK_PERMISSIONS_EXAMPLES.md)** - Bulk permission setting examples
+- **[ROLE_BASED_PERMISSIONS.md](./ROLE_BASED_PERMISSIONS.md)** - Complete RBAC system guide
+- **[QUICK_START.md](./QUICK_START.md)** - 5-minute setup guide
+- **[MIGRATION_GUIDE.md](./MIGRATION_GUIDE.md)** - Database migration guide
+
+---
+
+## Common Commands
+
 ```bash
-npm run migrate
-```
+# Development
+npm run dev              # Start dev server with hot-reload
 
-### Create Custom Migration
-```bash
-supabase migration new my_feature
-```
+# Production
+npm run build            # Build TypeScript
+npm start                # Start production server
 
----
+# Admin Setup
+npm run seed:admin       # Create initial admin user
+npm run assign:admin     # Assign admin role to existing user
 
-## 📊 Database Tables (27)
-
-### Auth (7)
-- schema_migrations, roles, pages, user_roles
-- role_page_perms, user_page_perms, profiles, audit_logs
-
-### Vending (7)
-- products, vending_machines, slots, sales
-- media, machine_media, transactions
-
-### Warehouse (12)
-- suppliers, warehouses, warehouse_stock
-- purchase_orders, purchase_order_items
-- delivery_routes, delivery_route_items
-- stock_adjustments, ordering_triggers
-- goods_receipt_notes, machine_refill_records
-- inventory_transactions
-
----
-
-## ✅ Quick Verification
-
-```sql
--- Count tables (expect 27)
-SELECT COUNT(*) FROM information_schema.tables
-WHERE table_schema = 'public';
-
--- Count policies (expect 49+)
-SELECT COUNT(*) FROM pg_policies
-WHERE schemaname = 'public';
-
--- Check migration applied
-SELECT * FROM public.schema_migrations
-WHERE version = '20251208000000';
+# Database
+npm run migrate          # Run migrations (limited)
 ```
 
 ---
 
-## 📚 Documentation
+## Environment Variables
 
-- MIGRATION_COMPLETE.md - Full summary
-- FINAL_DEPLOYMENT_GUIDE.md - Deployment guide
-- scripts/README.md - Script usage
-
----
-
-## 🎯 Key Features
-
-✅ **100% Idempotent** - Safe to run multiple times
-✅ **Production Match** - Based on vend_it_base_schema.sql
-✅ **Complete Security** - RLS policies on all tables
-✅ **Optimized** - 50+ performance indexes
-✅ **Automated** - Migration generator script included
-
----
-
-## 🆘 Quick Help
-
-**Tables already exist?** → No problem, uses IF NOT EXISTS
-**Policies already exist?** → No problem, drops first with IF EXISTS
-**Need old migrations?** → Check supabase/migrations_backup/
-**Want fresh snapshot?** → Run npm run migrate:generate
-
----
-
-**Ready to deploy?** Just run:
-```bash
-supabase db push
+```env
+SUPABASE_URL=your-project-url
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+PORT=8080
+ALLOWED_ORIGINS=http://localhost:3000,https://your-domain.com
+ADMIN_EMAIL=admin@example.com
+ADMIN_PASSWORD=securePassword
 ```
+
+---
+
+## Error Codes
+
+| Code | Category | Description |
+|------|----------|-------------|
+| AUTH_1xxx | Authentication | Token/auth errors |
+| AUTHZ_2xxx | Authorization | Permission errors |
+| VAL_3xxx | Validation | Invalid input |
+| RES_4xxx | Resource | Not found/exists |
+| DB_5xxx | Database | Database errors |
+| SYS_9xxx | System | Internal errors |
+
+---
+
+## Quick Tips
+
+✅ **DO:**
+- Create roles with permissions in one call
+- Create users with roles in one call
+- Use bulk endpoints for multiple permissions
+- Start with minimum permissions, add as needed
+- Document your role structure
+
+❌ **DON'T:**
+- Create roles for every permission combination
+- Hardcode user IDs in your code
+- Skip email confirmation in production
+- Use weak passwords
+- Share service role key
+
+---
+
+## Need Help?
+
+Check the detailed documentation:
+- [STREAMLINED_WORKFLOW.md](./STREAMLINED_WORKFLOW.md) - Step-by-step examples
+- [ROLE_BASED_PERMISSIONS.md](./ROLE_BASED_PERMISSIONS.md) - Complete guide
+- [QUICK_START.md](./QUICK_START.md) - Fast setup
+
+Or review example use cases in [BULK_PERMISSIONS_EXAMPLES.md](./BULK_PERMISSIONS_EXAMPLES.md).

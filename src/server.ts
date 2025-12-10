@@ -21,20 +21,28 @@ const app = express();
 
 // CORS configuration with origin allowlist
 const allowedOrigins = ENV.ALLOWED_ORIGINS.split(',').map(origin => origin.trim());
+console.log('Allowed CORS origins:', allowedOrigins);
+
 app.use(cors({
   origin: (requestOrigin: string | undefined, callback: (err: Error | null, origin?: boolean | string | RegExp | (boolean | string | RegExp)[]) => void) => {
     // Allow requests with no origin (mobile apps, Postman, etc.)
-    if (!requestOrigin || allowedOrigins.includes(requestOrigin)) {
+    if (!requestOrigin) {
+      callback(null, true);
+      return;
+    }
+
+    if (allowedOrigins.includes(requestOrigin)) {
       callback(null, true);
     } else {
+      console.error(`CORS blocked request from origin: ${requestOrigin}`);
+      console.error(`Allowed origins are: ${allowedOrigins.join(', ')}`);
       callback(new Error('Not allowed by CORS'));
     }
   },
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
-  exposedHeaders: ['Content-Range', 'X-Content-Range'],
-  maxAge: 86400 // 24 hours
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  exposedHeaders: ['RateLimit-Limit', 'RateLimit-Remaining', 'RateLimit-Reset']
 } as any));
 
 // Request body size limit

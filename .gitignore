@@ -12,8 +12,6 @@ dist
 dist-ssr
 *.local
 .env
-.env.local
-.env.*.local
 package-lock.json
 
 # Editor directories and files
@@ -26,39 +24,3 @@ package-lock.json
 *.njsproj
 *.sln
 *.sw?
-
-# Supabase
-.temp
-supabase/.temp/
-supabase/.branches/
-.supabase/
-
-# Database
-*.db
-*.sqlite
-*.sqlite3
-
-# OS files
-Thumbs.db
-.Spotlight-V100
-.Trashes
-
-# Temporary files
-*.tmp
-*.temp
-*.swp
-*.swo
-*~
-.cache/
-
-# Build files
-build/
-.next/
-out/
-
-# Testing
-coverage/
-.nyc_output/
-
-# IDE
-*.code-workspace

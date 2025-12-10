@@ -44,6 +44,12 @@ router.get('/userrole', requireAuth, async (req, res) => {
                 })) || []
         }));
 
+        // Debug logging for test role
+        const testRole = rolesWithPerms?.find(r => r.slug === 'test');
+        if (testRole) {
+            console.log('Test role being sent to frontend:', JSON.stringify(testRole, null, 2));
+        }
+
         return successResponse(res, { roles: rolesWithPerms });
     } catch (error) {
         console.error('Error fetching roles:', error);
