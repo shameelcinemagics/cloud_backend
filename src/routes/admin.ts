@@ -998,7 +998,11 @@ router.delete('/roles/:id', requirePerm('settings', PERM.D), async (req, res) =>
 // Delete user
 router.delete('/users/:id', requirePerm('users', PERM.D), async (req, res) => {
   try {
-    const { id } = req.params;
+    const { id } = req.params as { id?: string };
+
+    if (!id) {
+      return badRequest(res, 'User ID is required');
+    }
 
     // Input validation
     if (!isValidUUID(id)) {
@@ -1024,8 +1028,12 @@ router.delete('/users/:id', requirePerm('users', PERM.D), async (req, res) => {
 // Update user
 router.put('/users/:id', requirePerm('users', PERM.U), async (req, res) => {
   try {
-    const { id } = req.params;
+    const { id } = req.params as { id?: string };
     const { email, password } = req.body as { email?: string; password?: string };
+
+    if (!id) {
+      return badRequest(res, 'User ID is required');
+    }
 
     // Input validation
     if (!isValidUUID(id)) {

@@ -7,21 +7,39 @@ import { requireAuth } from './middleware/requireAuth.js';
 import pagesRouter from './routes/pages.js';
 import adminRouter from './routes/admin.js';
 import profileRouter from './routes/profile.js';
+import supplierRouter from './routes/supplier.js';
+import roleRouter from './routes/role.js';
+import warehouseRouter from './routes/warehouse.js';
+import purchaseOrderRouter from './routes/purchaseOrder.js';
+import deliveryRouteRouter from './routes/deliveryRoute.js';
+import productsRouter from './routes/products.js';
+import vendingMachinesRouter from './routes/vendingMachines.js';
+import inventoryRouter from './routes/inventory.js';
 import { AppError, formatErrorForLog } from './utils/errors.js';
 const app = express();
 // CORS configuration with origin allowlist
 const allowedOrigins = ENV.ALLOWED_ORIGINS.split(',').map(origin => origin.trim());
+console.log('Allowed CORS origins:', allowedOrigins);
 app.use(cors({
     origin: (requestOrigin, callback) => {
         // Allow requests with no origin (mobile apps, Postman, etc.)
-        if (!requestOrigin || allowedOrigins.includes(requestOrigin)) {
+        if (!requestOrigin) {
+            callback(null, true);
+            return;
+        }
+        if (allowedOrigins.includes(requestOrigin)) {
             callback(null, true);
         }
         else {
+            console.error(`CORS blocked request from origin: ${requestOrigin}`);
+            console.error(`Allowed origins are: ${allowedOrigins.join(', ')}`);
             callback(new Error('Not allowed by CORS'));
         }
     },
-    credentials: true
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    exposedHeaders: ['RateLimit-Limit', 'RateLimit-Remaining', 'RateLimit-Reset']
 }));
 // Request body size limit
 app.use(express.json({ limit: '10kb' }));
@@ -46,6 +64,14 @@ app.use(requireAuth);
 app.use('/pages', pagesRouter);
 app.use('/profile', profileRouter);
 app.use('/admin', adminLimiter, adminRouter);
+app.use('/supplier', supplierRouter);
+app.use('/roles', roleRouter);
+app.use('/warehouses', warehouseRouter);
+app.use('/purchase-orders', purchaseOrderRouter);
+app.use('/delivery-routes', deliveryRouteRouter);
+app.use('/products', productsRouter);
+app.use('/vending-machines', vendingMachinesRouter);
+app.use('/inventory', inventoryRouter);
 // Global error handler
 app.use((err, _req, res, _next) => {
     // Log the error with full details

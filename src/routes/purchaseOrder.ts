@@ -1,11 +1,12 @@
 import { Router } from 'express';
 import type { Request } from 'express';
+import type { User } from '@supabase/supabase-js';
 import { supabaseAdmin } from '../supabase.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { badRequest, serverError, successResponse, notFound } from '../utils/responses.js';
 
 interface AuthRequest extends Request {
-  user?: { id: string };
+  user?: User;
 }
 
 const isAdminUser = (user: any) => {
@@ -426,7 +427,7 @@ router.post('/confirm-delivery', requireAuth, async (req: AuthRequest, res) => {
         confirmed_unit_price
       } = item;
 
-      const currentItem = existingItems.get(purchase_order_item_id);
+      const currentItem = existingItems.get(purchase_order_item_id) as any;
       const prevReceivedQty = currentItem?.received_quantity || 0;
       let delta = received_quantity - prevReceivedQty;
 

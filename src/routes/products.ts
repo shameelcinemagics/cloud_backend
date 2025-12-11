@@ -1,5 +1,6 @@
 import { Router } from "express";
 import type { Request } from "express";
+import type { User } from "@supabase/supabase-js";
 import multer from "multer";
 import { supabaseAdmin } from "../supabase.js";
 import { requireAuth } from "../middleware/requireAuth.js";
@@ -11,7 +12,7 @@ import {
 } from "../utils/responses.js";
 
 interface AuthRequest extends Request {
-  user?: { id: string };
+  user?: User;
 }
 
 const router = Router();

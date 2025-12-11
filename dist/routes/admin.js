@@ -103,6 +103,7 @@ router.post('/create-user', requirePerm('settings', PERM.U), async (req, res) =>
 router.post('/create-role', requirePerm('settings', PERM.U), async (req, res) => {
     try {
         const { slug, label, permissions } = req.body;
+        console.log('Creating role with data:', { slug, label, permissions });
         // Input validation
         if (!isNonEmptyString(slug)) {
             return badRequest(res, 'Valid slug is required');
@@ -308,8 +309,30 @@ router.post('/set-role-pages', requirePerm('settings', PERM.U), async (req, res)
         if (!isNonEmptyString(role_slug)) {
             return badRequest(res, 'Invalid role_slug');
         }
-        if (!Array.isArray(permissions) || permissions.length === 0) {
-            return badRequest(res, 'permissions must be a non-empty array');
+        if (!Array.isArray(permissions)) {
+            return badRequest(res, 'permissions must be an array');
+        }
+        // Get role first
+        const { data: role, error: roleError } = await supabaseAdmin
+            .from('roles').select('id').eq('slug', role_slug).maybeSingle();
+        if (roleError)
+            return serverError(res, roleError.message);
+        if (!role)
+            return badRequest(res, `Role "${role_slug}" not found`);
+        // If empty array, delete all permissions for this role
+        if (permissions.length === 0) {
+            const { error: deleteError } = await supabaseAdmin
+                .from('role_page_perms')
+                .delete()
+                .eq('role_id', role.id);
+            if (deleteError) {
+                console.error('Error deleting all permissions:', deleteError);
+                return serverError(res, 'Failed to remove permissions');
+            }
+            return res.json({
+                message: 'All permissions removed from role',
+                permissions_set: 0
+            });
         }
         // Validate each permission entry
         const validLevels = ['view', 'admin', 'none'];
@@ -321,13 +344,6 @@ router.post('/set-role-pages', requirePerm('settings', PERM.U), async (req, res)
                 return badRequest(res, `Invalid level "${perm.level}". Must be: view, admin, or none`);
             }
         }
-        // Get role
-        const { data: role, error: roleError } = await supabaseAdmin
-            .from('roles').select('id').eq('slug', role_slug).maybeSingle();
-        if (roleError)
-            return serverError(res, roleError.message);
-        if (!role)
-            return badRequest(res, `Role "${role_slug}" not found`);
         // Get all pages
         const pageSlugs = permissions.map(p => p.page_slug);
         const { data: pages, error: pagesError } = await supabaseAdmin
@@ -346,58 +362,54 @@ router.post('/set-role-pages', requirePerm('settings', PERM.U), async (req, res)
         if (invalidPages.length > 0) {
             return badRequest(res, `Invalid page slugs: ${invalidPages.join(', ')}`);
         }
-        // Prepare records for upsert and delete
-        const recordsToUpsert = [];
-        const pagesToDelete = [];
+        // Step 1: Delete ALL existing permissions for this role
+        const { error: deleteAllError } = await supabaseAdmin
+            .from('role_page_perms')
+            .delete()
+            .eq('role_id', role.id);
+        if (deleteAllError) {
+            console.error('Error deleting existing permissions:', deleteAllError);
+            return serverError(res, 'Failed to clear existing permissions');
+        }
+        // Step 2: Insert only the new permissions (excluding 'none')
+        const recordsToInsert = [];
         for (const perm of permissions) {
             const pageId = pageMap.get(perm.page_slug);
             if (!pageId)
                 continue;
-            let perms_mask = null;
-            if (perm.level === 'view')
+            // Skip 'none' level - those pages should have no permissions
+            if (perm.level === 'none')
+                continue;
+            let perms_mask;
+            if (perm.level === 'view') {
                 perms_mask = PERM.R;
-            else if (perm.level === 'admin')
+            }
+            else if (perm.level === 'admin') {
                 perms_mask = PERM.C | PERM.R | PERM.U | PERM.D;
-            if (perms_mask === null) {
-                // Mark for deletion
-                pagesToDelete.push(pageId);
             }
             else {
-                // Mark for upsert
-                recordsToUpsert.push({
-                    role_id: role.id,
-                    page_id: pageId,
-                    perms_mask
-                });
+                continue;
             }
+            recordsToInsert.push({
+                role_id: role.id,
+                page_id: pageId,
+                perms_mask
+            });
         }
-        // Delete permissions where level = 'none'
-        if (pagesToDelete.length > 0) {
-            const { error: deleteError } = await supabaseAdmin
+        // Insert new permissions
+        if (recordsToInsert.length > 0) {
+            const { error: insertError } = await supabaseAdmin
                 .from('role_page_perms')
-                .delete()
-                .eq('role_id', role.id)
-                .in('page_id', pagesToDelete);
-            if (deleteError) {
-                console.error('Error deleting permissions:', deleteError);
-                return serverError(res, 'Failed to remove some permissions');
-            }
-        }
-        // Upsert permissions
-        if (recordsToUpsert.length > 0) {
-            const { error: upsertError } = await supabaseAdmin
-                .from('role_page_perms')
-                .upsert(recordsToUpsert, { onConflict: 'role_id,page_id' });
-            if (upsertError) {
-                console.error('Error upserting permissions:', upsertError);
-                return serverError(res, 'Failed to set some permissions');
+                .insert(recordsToInsert);
+            if (insertError) {
+                console.error('Error inserting permissions:', insertError);
+                return serverError(res, 'Failed to set permissions');
             }
         }
         return successResponse(res, {
             ok: true,
             role_slug,
-            permissions_set: recordsToUpsert.length,
-            permissions_removed: pagesToDelete.length,
+            permissions_set: recordsToInsert.length,
             details: permissions.map(p => ({
                 page_slug: p.page_slug,
                 level: p.level,
@@ -514,38 +526,51 @@ router.get('/roles', requirePerm('settings', PERM.R), async (_req, res) => {
 // Get all users (admin only)
 router.get('/users', requirePerm('users', PERM.R), async (_req, res) => {
     try {
+        console.log('Fetching users...');
         // Get users from auth
         const { data: authData, error: authError } = await supabaseAdmin.auth.admin.listUsers();
-        if (authError)
-            return serverError(res, 'Failed to fetch users');
-        // Get user roles
+        if (authError) {
+            console.error('Error fetching auth users:', authError);
+            return serverError(res, 'Failed to fetch users from auth');
+        }
+        console.log(`Found ${authData.users.length} auth users`);
+        // Get user roles (separate query to avoid foreign key issues)
         const { data: userRoles, error: rolesError } = await supabaseAdmin
             .from('user_roles')
-            .select(`
-        user_id,
-        roles:role_id (
-          id,
-          slug,
-          label
-        )
-      `);
-        if (rolesError)
-            return serverError(res, rolesError.message);
+            .select('user_id, role_id');
+        if (rolesError) {
+            console.error('Error fetching user_roles:', rolesError);
+            return serverError(res, 'Failed to fetch user roles: ' + rolesError.message);
+        }
+        console.log(`Found ${userRoles?.length || 0} user role assignments`);
+        // Get all roles (separate query)
+        const { data: roles, error: allRolesError } = await supabaseAdmin
+            .from('roles')
+            .select('id, slug, label');
+        if (allRolesError) {
+            console.error('Error fetching roles:', allRolesError);
+            return serverError(res, 'Failed to fetch roles: ' + allRolesError.message);
+        }
+        console.log(`Found ${roles?.length || 0} roles`);
+        // Create a map of role_id to role details
+        const roleMap = new Map(roles?.map(r => [r.id, r]) || []);
         // Combine data
         const users = authData.users.map(user => {
-            const roleData = userRoles?.find((ur) => ur.user_id === user.id);
+            const userRole = userRoles?.find((ur) => ur.user_id === user.id);
+            const roleDetails = userRole ? roleMap.get(userRole.role_id) : null;
             return {
                 id: user.id,
                 email: user.email,
                 created_at: user.created_at,
                 last_sign_in_at: user.last_sign_in_at,
-                role: roleData?.roles || null
+                role: roleDetails || null
             };
         });
+        console.log(`Successfully prepared ${users.length} users with role data`);
         return successResponse(res, { users });
     }
     catch (err) {
-        console.error('Error fetching users:', err);
+        console.error('Unexpected error fetching users:', err);
         return serverError(res, 'Failed to fetch users');
     }
 });
@@ -735,6 +760,174 @@ router.get('/check-trigger', requirePerm('settings', PERM.R), async (_req, res) 
     catch (err) {
         console.error('Error checking trigger:', err);
         return serverError(res, 'Failed to check trigger status');
+    }
+});
+// Update role
+router.put('/roles/:id', requirePerm('settings', PERM.U), async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { slug, label } = req.body;
+        // Input validation
+        if (!id || isNaN(Number(id))) {
+            return badRequest(res, 'Invalid role ID');
+        }
+        const roleId = Number(id);
+        // Check if role exists
+        const { data: existingRole, error: checkError } = await supabaseAdmin
+            .from('roles')
+            .select('*')
+            .eq('id', roleId)
+            .maybeSingle();
+        if (checkError) {
+            console.error('Error checking role:', checkError);
+            return serverError(res, 'Failed to check role');
+        }
+        if (!existingRole) {
+            return badRequest(res, 'Role not found');
+        }
+        // Build update object
+        const updates = {};
+        if (slug !== undefined && slug !== existingRole.slug) {
+            // Validate slug format
+            const slugRegex = /^[a-z0-9_-]+$/;
+            if (!slugRegex.test(slug)) {
+                return badRequest(res, 'Slug must be lowercase alphanumeric with underscores or hyphens only');
+            }
+            updates.slug = slug;
+        }
+        if (label !== undefined && label !== existingRole.label) {
+            if (!isNonEmptyString(label)) {
+                return badRequest(res, 'Label cannot be empty');
+            }
+            updates.label = label;
+        }
+        if (Object.keys(updates).length === 0) {
+            return successResponse(res, { role: existingRole, message: 'No changes to apply' });
+        }
+        // Update role
+        const { data: updatedRole, error: updateError } = await supabaseAdmin
+            .from('roles')
+            .update(updates)
+            .eq('id', roleId)
+            .select()
+            .single();
+        if (updateError) {
+            console.error('Error updating role:', updateError);
+            return serverError(res, 'Failed to update role');
+        }
+        console.log(`Role ${roleId} updated successfully`);
+        return successResponse(res, { role: updatedRole });
+    }
+    catch (err) {
+        console.error('Error updating role:', err);
+        return serverError(res, 'Failed to update role');
+    }
+});
+// Delete role
+router.delete('/roles/:id', requirePerm('settings', PERM.D), async (req, res) => {
+    try {
+        const { id } = req.params;
+        // Input validation
+        if (!id || isNaN(Number(id))) {
+            return badRequest(res, 'Invalid role ID');
+        }
+        const roleId = Number(id);
+        // Check if role exists
+        const { data: existingRole, error: checkError } = await supabaseAdmin
+            .from('roles')
+            .select('slug')
+            .eq('id', roleId)
+            .maybeSingle();
+        if (checkError) {
+            console.error('Error checking role:', checkError);
+            return serverError(res, 'Failed to check role');
+        }
+        if (!existingRole) {
+            console.error('Role not found with ID:', roleId);
+            return badRequest(res, 'Role not found');
+        }
+        // Prevent deleting the admin role
+        if (existingRole.slug === 'admin') {
+            return badRequest(res, 'Cannot delete the admin role');
+        }
+        // Delete role (cascading will handle role_page_perms and user_roles)
+        const { error: deleteError } = await supabaseAdmin
+            .from('roles')
+            .delete()
+            .eq('id', roleId);
+        if (deleteError) {
+            console.error('Error deleting role:', deleteError);
+            return serverError(res, 'Failed to delete role');
+        }
+        console.log(`Role ${roleId} (${existingRole.slug}) deleted successfully`);
+        return successResponse(res, { message: 'Role deleted successfully' });
+    }
+    catch (err) {
+        console.error('Error deleting role:', err);
+        return serverError(res, 'Failed to delete role');
+    }
+});
+// Delete user
+router.delete('/users/:id', requirePerm('users', PERM.D), async (req, res) => {
+    try {
+        const { id } = req.params;
+        if (!id) {
+            return badRequest(res, 'User ID is required');
+        }
+        // Input validation
+        if (!isValidUUID(id)) {
+            return badRequest(res, 'Invalid user ID format');
+        }
+        // Delete user from auth (this will cascade to other tables via triggers)
+        const { error: deleteError } = await supabaseAdmin.auth.admin.deleteUser(id);
+        if (deleteError) {
+            console.error('Error deleting user:', deleteError);
+            return serverError(res, 'Failed to delete user: ' + deleteError.message);
+        }
+        console.log(`User ${id} deleted successfully`);
+        return successResponse(res, { message: 'User deleted successfully' });
+    }
+    catch (err) {
+        console.error('Error deleting user:', err);
+        return serverError(res, 'Failed to delete user');
+    }
+});
+// Update user
+router.put('/users/:id', requirePerm('users', PERM.U), async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { email, password } = req.body;
+        if (!id) {
+            return badRequest(res, 'User ID is required');
+        }
+        // Input validation
+        if (!isValidUUID(id)) {
+            return badRequest(res, 'Invalid user ID format');
+        }
+        const updates = {};
+        if (email)
+            updates.email = email;
+        if (password) {
+            if (!isValidPassword(password)) {
+                return badRequest(res, 'Password must be at least 8 characters');
+            }
+            updates.password = password;
+        }
+        if (Object.keys(updates).length === 0) {
+            return badRequest(res, 'No fields to update');
+        }
+        // Update user
+        const { data, error } = await supabaseAdmin.auth.admin.updateUserById(id, updates);
+        if (error) {
+            console.error('Error updating user:', error);
+            return serverError(res, 'Failed to update user: ' + error.message);
+        }
+        console.log(`User ${id} updated successfully`);
+        return successResponse(res, { user: data.user });
+    }
+    catch (err) {
+        console.error('Error updating user:', err);
+        return serverError(res, 'Failed to update user');
     }
 });
 export default router;

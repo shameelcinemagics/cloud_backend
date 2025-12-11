@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "build": "tsc",
+    "build:backend": "npm run build",
     "start": "node dist/server.js",
     "migrate": "tsx scripts/runMigrations.ts",
     "seed:admin": "tsx scripts/seedAdmin.ts",
