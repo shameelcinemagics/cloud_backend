@@ -8,7 +8,46 @@ interface AuthRequest extends Request {
   user?: { id: string };
 }
 
+const isAdminUser = (user: any) => {
+  return user?.user_metadata?.role === 'admin';
+};
+
 const router = Router();
+
+const generateFallbackReference = () => {
+  const now = new Date();
+  const stamp = now.toISOString().replace(/[-:T.Z]/g, '').slice(0, 14);
+  const random = Math.floor(Math.random() * 9000) + 1000;
+  return `PO-${stamp}-${random}`;
+};
+
+const getPurchaseOrderReference = async () => {
+  // Preferred path: use RPC if available to keep numbering consistent
+  const { data: refData, error: refError } = await supabaseAdmin
+    .rpc('generate_po_reference');
+
+  if (!refError && refData) {
+    return { reference: refData as string, usedFallback: false };
+  }
+
+  console.warn('RPC generate_po_reference unavailable, using fallback:', refError?.message);
+
+  // Fallback: timestamp + random suffix; low collision risk
+  let reference = generateFallbackReference();
+
+  // If somehow generated reference already exists, try once more
+  const { data: existing } = await supabaseAdmin
+    .from('purchase_orders')
+    .select('reference')
+    .eq('reference', reference)
+    .maybeSingle();
+
+  if (existing) {
+    reference = generateFallbackReference();
+  }
+
+  return { reference, usedFallback: true };
+};
 
 // Get all purchase orders
 router.get('/', requireAuth, async (req, res) => {
@@ -143,16 +182,11 @@ router.post('/', requireAuth, async (req: AuthRequest, res) => {
       items = []
     } = req.body;
 
-    // Generate reference
-    const { data: refData, error: refError } = await supabaseAdmin
-      .rpc('generate_po_reference');
-
-    if (refError) {
-      console.error('Error generating reference:', refError);
-      return serverError(res, 'Failed to generate PO reference');
+    // Generate reference (RPC if available, otherwise fallback)
+    const { reference, usedFallback } = await getPurchaseOrderReference();
+    if (usedFallback) {
+      console.log('PO reference generated via fallback:', reference);
     }
-
-    const reference = refData;
 
     // Calculate total
     const totalAmount = items.reduce((sum: number, item: any) => {
@@ -353,10 +387,10 @@ router.post('/confirm-delivery', requireAuth, async (req: AuthRequest, res) => {
       return badRequest(res, 'Invalid request data');
     }
 
-    // Get PO details
+    // Get PO details (include items for reconciliation)
     const { data: poData, error: poError } = await supabaseAdmin
       .from('purchase_orders')
-      .select('*')
+      .select('*, purchase_order_items (*)')
       .eq('id', purchase_order_id)
       .single();
 
@@ -364,8 +398,10 @@ router.post('/confirm-delivery', requireAuth, async (req: AuthRequest, res) => {
       return notFound(res, 'Purchase order not found');
     }
 
-    if (poData.status === 'received') {
-      return badRequest(res, 'Purchase order already received');
+    const admin = isAdminUser(req.user);
+
+    if (poData.status === 'received' && !admin) {
+      return badRequest(res, 'Purchase order already received. Only admin can reconfirm.');
     }
 
     const targetWarehouse = warehouse_id || poData.deliver_to_warehouse_id;
@@ -374,6 +410,11 @@ router.post('/confirm-delivery', requireAuth, async (req: AuthRequest, res) => {
       return badRequest(res, 'No destination warehouse specified');
     }
 
+    // Map existing items for delta calculations
+    const existingItems = new Map(
+      (poData.purchase_order_items || []).map((item: any) => [item.id, item])
+    );
+
     // Process each received item
     for (const item of received_items) {
       const {
@@ -381,8 +422,13 @@ router.post('/confirm-delivery', requireAuth, async (req: AuthRequest, res) => {
         ordered_quantity,
         received_quantity,
         discrepancy_notes,
-        purchase_order_item_id
+        purchase_order_item_id,
+        confirmed_unit_price
       } = item;
+
+      const currentItem = existingItems.get(purchase_order_item_id);
+      const prevReceivedQty = currentItem?.received_quantity || 0;
+      let delta = received_quantity - prevReceivedQty;
 
       // Get current warehouse stock
       const { data: existingStock } = await supabaseAdmin
@@ -393,7 +439,16 @@ router.post('/confirm-delivery', requireAuth, async (req: AuthRequest, res) => {
         .maybeSingle();
 
       const quantityBefore = existingStock?.quantity || 0;
-      const quantityAfter = quantityBefore + received_quantity;
+      if (delta < 0 && Math.abs(delta) > quantityBefore) {
+        // Prevent removing more stock than available
+        delta = -quantityBefore;
+      }
+      const quantityAfter = Math.max(0, quantityBefore + delta);
+
+      // Prevent reducing below zero when no stock exists
+      if (!existingStock && delta < 0) {
+        return badRequest(res, 'Cannot reduce inventory for an item with no existing stock record');
+      }
 
       if (existingStock) {
         // Update existing stock
@@ -401,7 +456,8 @@ router.post('/confirm-delivery', requireAuth, async (req: AuthRequest, res) => {
           .from('warehouse_stock')
           .update({
             quantity: quantityAfter,
-            last_purchase_date: new Date().toISOString().split('T')[0]
+            last_purchase_date: new Date().toISOString().split('T')[0],
+            last_purchase_price: confirmed_unit_price ?? currentItem?.unit_price
           })
           .eq('id', existingStock.id);
       } else {
@@ -412,25 +468,33 @@ router.post('/confirm-delivery', requireAuth, async (req: AuthRequest, res) => {
             warehouse_id: targetWarehouse,
             product_id: product_id,
             quantity: received_quantity,
-            last_purchase_date: new Date().toISOString().split('T')[0]
+            last_purchase_date: new Date().toISOString().split('T')[0],
+            last_purchase_price: confirmed_unit_price ?? currentItem?.unit_price
           });
       }
 
-      // Record inventory transaction
-      await supabaseAdmin
-        .from('inventory_transactions')
-        .insert({
-          warehouse_id: targetWarehouse,
-          product_id: product_id,
-          transaction_type: 'purchase_receipt',
-          quantity_change: received_quantity,
-          quantity_before: quantityBefore,
-          quantity_after: quantityAfter,
-          reference_type: 'purchase_order',
-          reference_id: purchase_order_id,
-          notes: discrepancy_notes || confirmation_notes || `Received from PO ${poData.reference}`,
-          created_by: req.user?.id
-        });
+      // Record inventory transaction (only if there is a delta)
+      if (delta !== 0) {
+        await supabaseAdmin
+          .from('inventory_transactions')
+          .insert({
+            warehouse_id: targetWarehouse,
+            product_id: product_id,
+            transaction_type: 'purchase_receipt',
+            quantity_change: delta,
+            quantity_before: quantityBefore,
+            quantity_after: quantityAfter,
+            reference_type: 'purchase_order',
+            reference_id: purchase_order_id,
+            notes:
+              discrepancy_notes ||
+              confirmation_notes ||
+              (admin && poData.status === 'received'
+                ? `Reconfirmed from PO ${poData.reference}`
+                : `Received from PO ${poData.reference}`),
+            created_by: req.user?.id
+          });
+      }
 
       // Update received quantity in PO item
       if (purchase_order_item_id) {
@@ -438,6 +502,7 @@ router.post('/confirm-delivery', requireAuth, async (req: AuthRequest, res) => {
           .from('purchase_order_items')
           .update({
             received_quantity: received_quantity,
+            unit_price: confirmed_unit_price ?? currentItem?.unit_price,
             notes: discrepancy_notes || null
           })
           .eq('id', purchase_order_item_id);
